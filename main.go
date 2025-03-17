@@ -110,7 +110,7 @@ func notifyDiscord(event events.Message, level string, webhookURL string) {
 
 	payload := map[string]interface{}{
 		"username":   "DockaCord",
-		"avatar_url": "https://i.imgur.com/zlREvEQ.png",
+		"avatar_url": "https://raw.githubusercontent.com/Lyzev/DockaCord/refs/heads/master/assets/docker-mark-blue.png",
 		"embeds": []map[string]interface{}{
 			{
 				"title":       fmt.Sprintf("Docker Event Notification - %s", strings.ToUpper(level)),
@@ -122,7 +122,7 @@ func notifyDiscord(event events.Message, level string, webhookURL string) {
 				},
 				"author": map[string]string{
 					"name":     "Notification Bot",
-					"icon_url": "https://i.imgur.com/zlREvEQ.png",
+					"icon_url": "https://raw.githubusercontent.com/Lyzev/DockaCord/refs/heads/master/assets/docker-mark-blue.png",
 				},
 			},
 		},
