@@ -2,11 +2,12 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/docker/docker/api/types/events"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
-	"golang.org/x/net/context"
 	"io"
 	"log"
 	"net/http"
@@ -32,11 +33,26 @@ var defaultConfig = Config{
 	Info:    []string{"start"},
 }
 
+// Compile actions into lookup maps for O(1) membership checks.
+var errorActions map[string]bool
+var warnActions map[string]bool
+var infoActions map[string]bool
+
+func init() {
+	// Initialize action maps once (if config is unmodified, these remain valid).
+	errorActions = make(map[string]bool)
+	warnActions = make(map[string]bool)
+	infoActions = make(map[string]bool)
+}
+
 func main() {
 	cfg, err := loadConfig("config.json")
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
+
+	// Populate the action maps from the config on startup.
+	populateActionMaps(cfg)
 
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
@@ -47,14 +63,19 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	msgs, errs := cli.Events(ctx, events.ListOptions{})
+	// Filter only container events to reduce overhead
+	filterArgs := filters.NewArgs()
+	filterArgs.Add("type", "container")
+	msgs, errs := cli.Events(ctx, events.ListOptions{
+		Filters: filterArgs,
+	})
 
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
 
 	go handleDockerEvents(msgs, errs, signalChan, cfg)
 
-	log.Println("Listening for Docker events and signals...")
+	log.Println("Listening for Docker container events and signals...")
 	select {}
 }
 
@@ -79,7 +100,7 @@ func handleDockerEvents(msgs <-chan events.Message, errs <-chan error, signalCha
 
 // handleEvent processes Docker events
 func handleEvent(event events.Message, cfg *Config) {
-	level := getEventLevel(string(event.Action), cfg)
+	level := getEventLevel(string(event.Action))
 	if level == "" {
 		return
 	}
@@ -88,25 +109,24 @@ func handleEvent(event events.Message, cfg *Config) {
 	notifyDiscord(event, level, cfg.Webhook)
 }
 
-// getEventLevel determines the event level based on the action and config.
-func getEventLevel(action string, cfg *Config) string {
-	switch {
-	case inSlice(action, cfg.Error):
+// getEventLevel determines the event level based on the action maps.
+func getEventLevel(action string) string {
+	if errorActions[action] {
 		return "error"
-	case inSlice(action, cfg.Warning):
-		return "warning"
-	case inSlice(action, cfg.Info):
-		return "info"
-	default:
-		return ""
 	}
+	if warnActions[action] {
+		return "warning"
+	}
+	if infoActions[action] {
+		return "info"
+	}
+	return ""
 }
 
 // notifyDiscord sends a notification to Discord
 func notifyDiscord(event events.Message, level string, webhookURL string) {
 	formattedTimeR := fmt.Sprintf("<t:%d:R>", event.Time)
 	formattedTimeF := fmt.Sprintf("<t:%d:F>", event.Time)
-	color := getColor(level)
 
 	payload := map[string]interface{}{
 		"username":   "DockaCord",
@@ -116,7 +136,7 @@ func notifyDiscord(event events.Message, level string, webhookURL string) {
 				"title":       fmt.Sprintf("Docker Event Notification - %s", strings.ToUpper(level)),
 				"url":         "https://lyzev.dev/",
 				"description": fmt.Sprintf("**Container**: `%s`\n**Action**: `%s`\n**At**: %s (%s)", event.Actor.Attributes["name"], event.Action, formattedTimeF, formattedTimeR),
-				"color":       color,
+				"color":       getColor(level),
 				"footer": map[string]string{
 					"text": "© 2025 Lyzev.",
 				},
@@ -145,9 +165,8 @@ func notifyDiscord(event events.Message, level string, webhookURL string) {
 		return
 	}
 	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil {
-			log.Printf("Failed to close response body: %v", err)
+		if closeErr := Body.Close(); closeErr != nil {
+			log.Printf("Failed to close response body: %v", closeErr)
 		}
 	}(resp.Body)
 
@@ -170,14 +189,17 @@ func getColor(level string) int {
 	}
 }
 
-// inSlice checks if an action is in the list of actions
-func inSlice(action string, actions []string) bool {
-	for _, a := range actions {
-		if a == action {
-			return true
-		}
+// populateActionMaps moves action slices into maps to avoid repeated in-slice scans.
+func populateActionMaps(cfg *Config) {
+	for _, a := range cfg.Error {
+		errorActions[a] = true
 	}
-	return false
+	for _, a := range cfg.Warning {
+		warnActions[a] = true
+	}
+	for _, a := range cfg.Info {
+		infoActions[a] = true
+	}
 }
 
 // loadConfig loads configuration from a file
