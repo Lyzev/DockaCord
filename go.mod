@@ -2,10 +2,7 @@ module DockaCord
 
 go 1.24
 
-require (
-	github.com/docker/docker v28.0.1+incompatible
-	golang.org/x/net v0.37.0
-)
+require github.com/docker/docker v28.0.1+incompatible
 
 require (
 	github.com/Microsoft/go-winio v0.4.14 // indirect
@@ -29,6 +26,7 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.35.0 // indirect
 	go.opentelemetry.io/otel/metric v1.35.0 // indirect
 	go.opentelemetry.io/otel/trace v1.35.0 // indirect
+	golang.org/x/net v0.38.0 // indirect
 	golang.org/x/sys v0.31.0 // indirect
 	golang.org/x/time v0.11.0 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
